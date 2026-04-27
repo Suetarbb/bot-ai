@@ -6,7 +6,9 @@ def main_menu():
         keyboard=[
             [KeyboardButton(text="👤 Профиль"),   KeyboardButton(text="💳 Тарифы")],
             [KeyboardButton(text="📊 Презентация"), KeyboardButton(text="❓ Помощь")],
-            [KeyboardButton(text="🏆 Достижения"), KeyboardButton(text="📈 Топ")]
+            [KeyboardButton(text="📈 Топ"),        KeyboardButton(text="📢 Получить запросы")],
+            [KeyboardButton(text="🔗 Реферальная ссылка")],
+            [KeyboardButton(text="🔮 Будущее обновление")]
         ],
         resize_keyboard=True
     )

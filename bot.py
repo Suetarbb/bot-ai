@@ -16,6 +16,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from openai import AsyncOpenAI
 from pptx import Presentation
+from docx import Document as DocxDocument
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
@@ -31,17 +32,34 @@ from database import (
     clear_history, get_stats, upgrade_user,
     ACHIEVEMENTS, give_achievement, get_user_achievements,
     get_user_stats, update_user_stats, get_top_users,
-    get_weekly_top_user, add_bonus_messages, update_streak
+    get_weekly_top_user, add_bonus_messages, update_streak,
+    add_referral, get_referral_stats
 )
 from keyboards import main_menu, plans_keyboard
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+matplotlib.use('Agg')
+
+UPCOMING_UPDATE = """
+🚀 <b>Будущее обновление</b>
+
+✨ Что планируется:
+• Telegram подарки за достижения
+• Улучшение дизана презентаций
+
+📅 Ожидаемая дата: скоро
+"""
 
 WEEKLY_BONUS = 50
+CHANNEL_ID = "@Neirosupport1"
+CHANNEL_BONUS = 10
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+@dp.message(F.chat.type.in_({"channel", "supergroup", "group"}))
+async def ignore_groups(message: Message):
+    return
 claude = AsyncOpenAI(
     api_key=CLAUDE_API_KEY,
     base_url="https://api.claudehub.fun/v1"
@@ -60,12 +78,33 @@ async def check_and_give(user_id: int, achievement_id: str):
     given = await give_achievement(user_id, achievement_id)
     if given:
         a = ACHIEVEMENTS[achievement_id]
+        
+        if a.get("reward_type") == "gift":
+            reward_text = f"\n🎁 Награда: подарок <b>{a['reward']} ⭐</b>"
+            # Уведомление админу
+            user = await get_user(user_id)
+            username = f"@{user['username']}" if user and user['username'] else f"ID: {user_id}"
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"🎁 <b>Нужно выдать подарок!</b>\n\n"
+                    f"👤 Пользователь: {username}\n"
+                    f"🏅 Достижение: {a['emoji']} {a['name']}\n"
+                    f"⭐ Стоимость: <b>{a['reward']} звёзд</b>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        else:
+            reward_text = f"\n🎁 Награда: <b>+{a['reward']} запросов</b>" if a.get("reward", 0) > 0 else ""
+
         try:
             await bot.send_message(
                 user_id,
                 f"🎉 <b>Новое достижение!</b>\n\n"
                 f"{a['emoji']} <b>{a['name']}</b>\n"
-                f"<i>{a['desc']}</i>",
+                f"<i>{a['desc']}</i>"
+                f"{reward_text}",
                 parse_mode="HTML"
             )
         except Exception:
@@ -410,10 +449,32 @@ def create_summary_slide(prs, title, points, theme):
 @dp.message(CommandStart())
 async def start(message: Message):
     user = message.from_user
+    is_new = await get_user(user.id) is None
     await create_user(user.id, user.username or user.first_name)
-    await log_user(user.id, user.username or "", user.first_name, user.last_name or "")
 
-    # достижения
+    args = message.text.split()
+    if is_new and len(args) > 1 and args[1].startswith("ref_"):
+        try:
+            referrer_id = int(args[1].replace("ref_", ""))
+            if referrer_id != user.id:
+                success = await add_referral(referrer_id, user.id)
+                if success:
+                    await bot.send_message(
+                        referrer_id,
+                        f"🎉 <b>Новый реферал!</b>\n\n"
+                        f"По твоей ссылке зарегистрировался новый пользователь.\n"
+                        f"Тебе начислено <b>+15 запросов!</b> 🎁",
+                        parse_mode="HTML"
+                    )
+                    await message.answer(
+                        f"🎁 <b>Бонус за приглашение!</b>\n\n"
+                        f"Тебе начислено <b>+15 запросов</b> по реферальной ссылке!",
+                        parse_mode="HTML"
+                    )
+        except:
+            pass
+
+    await log_user(user.id, user.username or "", user.first_name, user.last_name or "")
     await check_and_give(user.id, "first_step")
     stats = await get_user_stats(user.id)
     used_cmds = set(stats["commands_used"].split(",")) if stats["commands_used"] else set()
@@ -446,6 +507,45 @@ async def profile(message: Message):
         return
 
     user_achievements = await get_user_achievements(user_id)
+    earned_ids = {r["achievement_id"] for r in user_achievements}
+    earned_count = len(earned_ids)
+    total_count = len(ACHIEVEMENTS)
+
+    plan_name = PLANS.get(user["plan"], {}).get("name", user["plan"])
+    remaining = user["messages_limit"] - user["messages_used"]
+
+    plan_features = {
+        "free":  "• 10 сообщений в месяц\n• 3 презентации\n• Базовый анализ фото",
+        "basic": "• 100 сообщений в месяц\n• 20 презентаций\n• Анализ фото\n• Приоритетный ответ",
+        "pro":   "• 500 сообщений в месяц\n• Безлимит презентаций\n• Анализ фото\n• Быстрый ответ",
+        "ultra": "• Безлимит сообщений\n• Безлимит презентаций\n• Все функции\n• Максимальный приоритет",
+    }
+    features = plan_features.get(user["plan"], "")
+
+    earned_list = ""
+    for aid in earned_ids:
+        if aid in ACHIEVEMENTS:
+            a = ACHIEVEMENTS[aid]
+            earned_list += f"{a['emoji']} {a['name']}\n"
+
+    await message.answer(
+        f"👤 <b>Ваш профиль</b>\n\n"
+        f"🗂 Тариф: <b>{plan_name}</b>\n"
+        f"💬 Использовано: {user['messages_used']}/{user['messages_limit']}\n"
+        f"✉️ Осталось: {remaining} сообщений\n"
+        f"🔄 Сброс: {user['reset_date'][:10]}\n\n"
+        f"📦 <b>Что включено:</b>\n{features}\n\n"
+        f"🏆 <b>Достижения [{earned_count}/{total_count}]:</b>\n"
+        f"{earned_list if earned_list else 'Пока нет достижений'}",
+        parse_mode="HTML"
+    )
+    user_id = message.from_user.id
+    user = await get_user(user_id)
+    if not user:
+        await start(message)
+        return
+
+    user_achievements = await get_user_achievements(user_id)
     earned = [ACHIEVEMENTS[r["achievement_id"]]["emoji"] + " " + ACHIEVEMENTS[r["achievement_id"]]["name"]
               for r in user_achievements if r["achievement_id"] in ACHIEVEMENTS]
 
@@ -454,27 +554,13 @@ async def profile(message: Message):
     ach_text = ", ".join(earned) if earned else "Пока нет"
 
     plan_features = {
-        "free":  "• 10 сообщений в месяц\n• 3 презентации\n• Базовый анализ фото",
-        "basic": "• 100 сообщений в месяц\n• 20 презентаций\n• Анализ фото\n• Приоритетный ответ",
-        "pro":   "• 500 сообщений в месяц\n• Безлимит презентаций\n• Анализ фото\n• Быстрый ответ\n• Доступ к новым функциям",
+        "free":  "• 10 сообщений в месяц на все(презентации включены в это колличество)\n• 3 презентации (\n• Базовый анализ фото",
+        "basic": "• 100 сообщений в месяц на все(презентации включены в это колличество)\n• 20 презентаций(\n• Анализ фото\n• Приоритетный ответ",
+        "pro":   "• 500 сообщений в месяц на все(презентации включены в это колличество)\n• Безлимит презентаций\n• Анализ фото\n• Быстрый ответ\n• Доступ к новым функциям",
         "ultra": "• Безлимит сообщений\n• Безлимит презентаций\n• Все функции\n• Максимальный приоритет",
     }
     features = plan_features.get(user["plan"], "")
 
-    await message.answer(
-        f"👤 <b>Ваш профиль</b>\n\n"
-        f"📋 Тариф: <b>{plan_name}</b>\n"
-        f"💬 Использовано: {user['messages_used']}/{user['messages_limit']}\n"
-        f"✉️ Осталось: {remaining} сообщений\n"
-        f"🔄 Сброс: {user['reset_date'][:10]}\n\n"
-        f"📦 <b>Что включено:</b>\n{features}\n\n"
-        f"🏆 Достижения [{len(earned)}/{len(ACHIEVEMENTS)}]:\n{ach_text}",
-        parse_mode="HTML"
-    )
-
-@dp.message(Command("achievements"))
-@dp.message(F.text == "🏆 Достижения")
-async def show_achievements(message: Message):
     user_id = message.from_user.id
     user_achievements = await get_user_achievements(user_id)
     earned_ids = {row["achievement_id"] for row in user_achievements}
@@ -490,12 +576,44 @@ async def show_achievements(message: Message):
             categories[cat].append(f"🔒 <i>{a['name']}</i>")
 
     text = f"🏆 <b>Достижения</b> [{len(earned_ids)}/{len(ACHIEVEMENTS)}]\n\n"
-    for cat, items in categories.items():
-        text += f"{cat}\n"
-        for item in items:
-            text += f"  {item}\n"
+    for cat, items_aids in categories.items():
+        text += f"<b>{cat}</b>\n"
+        for aid, a in [(aid, ACHIEVEMENTS[aid]) for aid in ACHIEVEMENTS if ACHIEVEMENTS[aid]["cat"] == cat]:
+            if aid in earned_ids:
+                if a.get("reward_type") == "gift":
+                    reward = f"⭐ {a['reward']} звёзд"
+                elif a.get("reward", 0) > 0:
+                    reward = f"+{a['reward']} запросов"
+                else:
+                    reward = ""
+                reward_text = f" — <i>{reward}</i>" if reward else ""
+                text += f"  ✅ {a['emoji']} <b>{a['name']}</b>{reward_text}\n"
+            else:
+                text += f"  🔒 {a['emoji']} {a['name']} — <i>{a['desc']}</i>\n"
         text += "\n"
     await message.answer(text, parse_mode="HTML")
+@dp.message(Command("gifts"))
+async def get_gifts(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    result = await bot.get_available_gifts()
+    text = "🎁 <b>Доступные подарки:</b>\n\n"
+    for gift in result.gifts:
+        text += f"ID: <code>{gift.id}</code>\n"
+        text += f"Цена: {gift.star_count} ⭐\n\n"
+    await message.answer(text, parse_mode="HTML")
+@dp.message(Command("testgift"))
+async def test_gift(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        await bot.send_gift(
+            user_id=message.from_user.id,
+            gift_id="5170145012310081615"
+        )
+        await message.answer("✅ Подарок отправлен!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @dp.message(Command("top"))
@@ -603,31 +721,57 @@ async def give_plan(message: Message):
     await message.answer(f"✅ Тариф {plan['name']} выдан пользователю {target_id}")
 
 @dp.message(Command("bonus"))
-async def give_bonus(message: Message):
+async def cmd_bonus(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-    args = message.text.split()
-    if len(args) != 3:
-        await message.answer("❌ Использование: /bonus <user_id> <количество>")
+    args = message.text.split(maxsplit=3)
+    if len(args) < 3:
+        await message.answer(
+            "❌ Использование:\n"
+            "/bonus @all 10 Текст сообщения\n"
+            "/bonus 123456789 10 Текст сообщения\n\n"
+            "Текст необязателен"
+        )
         return
+
+    target = args[1]
     try:
-        target_id = int(args[1])
         amount = int(args[2])
     except ValueError:
-        await message.answer("❌ Неверные параметры")
+        await message.answer("❌ Количество должно быть числом")
         return
-    await add_bonus_messages(target_id, amount)
-    try:
-        await bot.send_message(
-            target_id,
-            f"🎁 <b>Бонус получен!</b>\n\n"
-            f"Тебе начислено <b>+{amount} запросов</b> за лидерство на этой неделе!\n\n"
-            f"🏆 Так держать!",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-    await message.answer(f"✅ Пользователю {target_id} выдано +{amount} запросов")
+
+    custom_text = args[3] if len(args) == 4 else None
+    text = f"🎁 <b>Тебе начислено +{amount} запросов!</b>"
+    if custom_text:
+        text += f"\n\n{custom_text}"
+
+    if target == "@all":
+        async with aiosqlite.connect("bot_database.db") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT user_id FROM users") as cur:
+                users = await cur.fetchall()
+        ok, fail = 0, 0
+        for u in users:
+            try:
+                await add_bonus_messages(u["user_id"], amount)
+                await bot.send_message(u["user_id"], text, parse_mode="HTML")
+                ok += 1
+            except Exception:
+                fail += 1
+        await message.answer(f"✅ Всем выдано +{amount} запросов\nДоставлено: {ok}\nНе доставлено: {fail}", reply_markup=admin_keyboard())
+    else:
+        try:
+            user_id = int(target)
+        except ValueError:
+            await message.answer("❌ Введи user_id или @all")
+            return
+        await add_bonus_messages(user_id, amount)
+        try:
+            await bot.send_message(user_id, text, parse_mode="HTML")
+        except Exception:
+            pass
+        await message.answer(f"✅ Пользователю {user_id} выдано +{amount} запросов", reply_markup=admin_keyboard())
 
 @dp.message(Command("setstats"))
 async def set_stats(message: Message):
@@ -685,6 +829,10 @@ from aiogram.fsm.state import State, StatesGroup
 class FeedbackState(StatesGroup):
     waiting = State()
 
+@dp.message(F.text == "🔮 Будущее обновление")
+async def upcoming_update(message: Message):
+    await message.answer(UPCOMING_UPDATE, parse_mode="HTML")
+
 @dp.message(F.text == "❓ Помощь")
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
@@ -726,17 +874,23 @@ async def cancel(message: Message, state: FSMContext):
 @dp.message(FeedbackState.waiting)
 async def feedback_receive(message: Message, state: FSMContext):
     user = message.from_user
-    text = message.text
-
-    # Отправляем тебе
-    await bot.send_message(
-        1707119372,
+    caption = (
         f"💡 <b>Новая идея/предложение!</b>\n\n"
         f"👤 {user.first_name} (@{user.username or 'нет'})\n"
         f"🆔 <code>{user.id}</code>\n\n"
-        f"💬 {text}",
-        parse_mode="HTML"
+        f"💬 {message.caption or message.text or '(без текста)'}"
     )
+
+    if message.photo:
+        await bot.send_photo(1707119372, message.photo[-1].file_id, caption=caption, parse_mode="HTML")
+    elif message.video:
+        await bot.send_video(1707119372, message.video.file_id, caption=caption, parse_mode="HTML")
+    elif message.document:
+        await bot.send_document(1707119372, message.document.file_id, caption=caption, parse_mode="HTML")
+    elif message.voice:
+        await bot.send_voice(1707119372, message.voice.file_id, caption=caption, parse_mode="HTML")
+    else:
+        await bot.send_message(1707119372, caption, parse_mode="HTML")
 
     await state.clear()
     await message.answer(
@@ -745,6 +899,88 @@ async def feedback_receive(message: Message, state: FSMContext):
         parse_mode="HTML",
         reply_markup=main_menu()
     )
+@dp.message(Command("ref"))
+@dp.message(F.text == "🔗 Реферальная ссылка")
+async def referral_cmd(message: Message):
+    user_id = message.from_user.id
+    user = await get_user(user_id)
+    bot_info = await bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+    referrals = user["referrals_count"] if user and user["referrals_count"] else 0
+    await message.answer(
+        f"🔗 <b>Реферальная программа</b>\n\n"
+        f"Приглашай друзей и получай <b>+15 запросов</b> за каждого!\n"
+        f"Новый пользователь тоже получит <b>+15 запросов</b> 🎁\n\n"
+        f"👥 Приглашено: <b>{referrals}</b> человек\n"
+        f"💰 Заработано: <b>{referrals * 15}</b> запросов\n\n"
+        f"Твоя ссылка:\n<code>{ref_link}</code>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Поделиться", url=f"https://t.me/share/url?url={ref_link}&text=Попробуй этого AI-бота!")]
+        ])
+    )
+async def check_subscription(user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(CHANNEL_ID, user_id)
+        return member.status not in ["left", "kicked"]
+    except Exception:
+        return False
+
+@dp.message(F.text == "📢 Получить запросы")
+async def sub_bonus(message: Message):
+    user_id = message.from_user.id
+    if await check_subscription(user_id):
+        async with aiosqlite.connect("bot_database.db") as db:
+            async with db.execute(
+                "SELECT 1 FROM user_achievements WHERE user_id=? AND achievement_id='sub_bonus'",
+                (user_id,)
+            ) as cur:
+                already = await cur.fetchone()
+        if already:
+            await message.answer("✅ Ты уже получил бонус за подписку!")
+            return
+        await add_bonus_messages(user_id, CHANNEL_BONUS)
+        await give_achievement(user_id, "sub_bonus")
+        await message.answer(
+            f"🎉 <b>Спасибо за подписку!</b>\n\n"
+            f"Тебе начислено <b>+{CHANNEL_BONUS} запросов</b>!",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(
+            f"📢 <b>Подпишись на канал и получи +{CHANNEL_BONUS} запросов!</b>\n\n"
+            f"1. Подпишись на {CHANNEL_ID}\n"
+            f"2. Нажми кнопку снова",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📢 Подписаться", url=f"https://t.me/{CHANNEL_ID.replace('@','')}")],
+                [InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub")]
+            ])
+        )
+
+@dp.callback_query(F.data == "check_sub")
+async def check_sub_callback(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if await check_subscription(user_id):
+        async with aiosqlite.connect("bot_database.db") as db:
+            async with db.execute(
+                "SELECT 1 FROM user_achievements WHERE user_id=? AND achievement_id='sub_bonus'",
+                (user_id,)
+            ) as cur:
+                already = await cur.fetchone()
+        if already:
+            await callback.answer("Ты уже получил бонус!", show_alert=True)
+            return
+        await add_bonus_messages(user_id, CHANNEL_BONUS)
+        await give_achievement(user_id, "sub_bonus")
+        await callback.message.edit_text(
+            f"🎉 <b>Спасибо за подписку!</b>\n\n"
+            f"Тебе начислено <b>+{CHANNEL_BONUS} запросов</b>!",
+            parse_mode="HTML"
+        )
+    else:
+        await callback.answer("❌ Ты ещё не подписан!", show_alert=True)
+    await callback.answer()
 # ===================== АДМИН ПАНЕЛЬ =====================
 def admin_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -754,6 +990,8 @@ def admin_keyboard():
         [InlineKeyboardButton(text="🎁 Выдать бонус", callback_data="admin_bonus")],
         [InlineKeyboardButton(text="📋 Выдать тариф", callback_data="admin_give")],
         [InlineKeyboardButton(text="🏆 Топ недели", callback_data="admin_top")],
+        [InlineKeyboardButton(text="🔗 Рефералы", callback_data="admin_refs")],
+        [InlineKeyboardButton(text="🏅 Выдать достижение", callback_data="admin_ach")],
         [InlineKeyboardButton(text="📁 Логи", callback_data="admin_logs")],
     ])
 
@@ -771,8 +1009,11 @@ class AdminState(StatesGroup):
     broadcast = State()
     bonus_id = State()
     bonus_amount = State()
+    bonus_message = State()
     give_id = State()
     give_plan = State()
+    ach_id = State()
+    ach_name = State()
 
 @dp.callback_query(F.data == "admin_users")
 async def admin_users(callback: CallbackQuery):
@@ -857,13 +1098,15 @@ async def admin_stats_cb(callback: CallbackQuery):
         return
     async with aiosqlite.connect("bot_database.db") as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT SUM(messages_used) as total, SUM(pres) as pres, SUM(photos) as photos FROM users") as cur:
+        async with db.execute("SELECT SUM(messages_used) as total FROM users") as cur:
             row = await cur.fetchone()
+        async with db.execute("SELECT SUM(presentations_count) as pres, SUM(photos_count) as photos FROM user_stats") as cur:
+            stats = await cur.fetchone()
     await callback.message.edit_text(
         f"📊 <b>Статистика бота</b>\n\n"
         f"💬 Всего сообщений: <b>{row['total'] or 0}</b>\n"
-        f"📊 Презентаций: <b>{row['pres'] or 0}</b>\n"
-        f"📸 Фото обработано: <b>{row['photos'] or 0}</b>",
+        f"📊 Презентаций: <b>{stats['pres'] or 0}</b>\n"
+        f"📸 Фото обработано: <b>{stats['photos'] or 0}</b>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_back")]
@@ -876,7 +1119,9 @@ async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
     await callback.message.edit_text(
-        "📢 Напиши текст рассылки (отправится всем пользователям):\n\nДля отмены /cancel",
+        "📢 Отправь сообщение для рассылки\n\n"
+        "Можно отправить текст, фото, видео, документ или голосовое\n\n"
+        "Для отмены /cancel",
         reply_markup=None
     )
     await state.set_state(AdminState.broadcast)
@@ -894,7 +1139,18 @@ async def admin_broadcast_send(message: Message, state: FSMContext):
     ok, fail = 0, 0
     for u in users:
         try:
-            await bot.send_message(u["user_id"], message.text, parse_mode="HTML")
+            if message.photo:
+                await bot.send_photo(u["user_id"], message.photo[-1].file_id, caption=message.caption, parse_mode="HTML")
+            elif message.video:
+                await bot.send_video(u["user_id"], message.video.file_id, caption=message.caption, parse_mode="HTML")
+            elif message.document:
+                await bot.send_document(u["user_id"], message.document.file_id, caption=message.caption, parse_mode="HTML")
+            elif message.voice:
+                await bot.send_voice(u["user_id"], message.voice.file_id, caption=message.caption, parse_mode="HTML")
+            elif message.animation:
+                await bot.send_animation(u["user_id"], message.animation.file_id, caption=message.caption, parse_mode="HTML")
+            else:
+                await bot.send_message(u["user_id"], message.text, parse_mode="HTML")
             ok += 1
         except Exception:
             fail += 1
@@ -912,7 +1168,14 @@ async def admin_bonus_start(callback: CallbackQuery, state: FSMContext):
 async def admin_bonus_id(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-    await state.update_data(target_id=int(message.text))
+    if message.text.strip() == "@all":
+        await state.update_data(target_id="@all")
+    else:
+        try:
+            await state.update_data(target_id=int(message.text))
+        except ValueError:
+            await message.answer("❌ Введи user_id или @all")
+            return
     await state.set_state(AdminState.bonus_amount)
     await message.answer("Введи количество бонусных запросов:")
 
@@ -920,16 +1183,71 @@ async def admin_bonus_id(message: Message, state: FSMContext):
 async def admin_bonus_amount(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
+    await state.update_data(amount=int(message.text))
+    await state.set_state(AdminState.bonus_message)
+    await message.answer(
+        "Напиши сообщение которое получит пользователь\n\n"
+        "Или отправь - чтобы отправить стандартное"
+    )
+
+@dp.message(AdminState.bonus_message)
+async def admin_bonus_message(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
     data = await state.get_data()
     target_id = data["target_id"]
-    amount = int(message.text)
+    amount = data["amount"]
     await state.clear()
-    await add_bonus_messages(target_id, amount)
-    try:
-        await bot.send_message(target_id, f"🎁 <b>Тебе начислено +{amount} запросов!</b>", parse_mode="HTML")
-    except Exception:
-        pass
-    await message.answer(f"✅ Пользователю {target_id} выдано +{amount} запросов", reply_markup=admin_keyboard())
+
+    custom_text = message.text.strip()
+    if custom_text == "-":
+        text = f"🎁 <b>Тебе начислено +{amount} запросов!</b>"
+    else:
+        text = f"🎁 <b>Тебе начислено +{amount} запросов!</b>\n\n{custom_text}"
+
+    if target_id == "@all":
+        async with aiosqlite.connect("bot_database.db") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT user_id FROM users") as cur:
+                users = await cur.fetchall()
+        ok, fail = 0, 0
+        for u in users:
+            try:
+                await add_bonus_messages(u["user_id"], amount)
+                await bot.send_message(u["user_id"], text, parse_mode="HTML")
+                ok += 1
+            except Exception:
+                fail += 1
+        await message.answer(f"✅ Всем выдано +{amount} запросов\nДоставлено: {ok}\nНе доставлено: {fail}", reply_markup=admin_keyboard())
+    else:
+        await add_bonus_messages(target_id, amount)
+        try:
+            await bot.send_message(target_id, text, parse_mode="HTML")
+        except Exception:
+            pass
+        await message.answer(f"✅ Пользователю {target_id} выдано +{amount} запросов", reply_markup=admin_keyboard())
+
+    if target_id == "@all":
+        async with aiosqlite.connect("bot_database.db") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT user_id FROM users") as cur:
+                users = await cur.fetchall()
+        ok, fail = 0, 0
+        for u in users:
+            try:
+                await add_bonus_messages(u["user_id"], amount)
+                await bot.send_message(u["user_id"], f"🎁 <b>Тебе начислено +{amount} запросов!</b>", parse_mode="HTML")
+                ok += 1
+            except Exception:
+                fail += 1
+        await message.answer(f"✅ Всем выдано +{amount} запросов\nДоставлено: {ok}\nНе доставлено: {fail}", reply_markup=admin_keyboard())
+    else:
+        await add_bonus_messages(target_id, amount)
+        try:
+            await bot.send_message(target_id, f"🎁 <b>Тебе начислено +{amount} запросов!</b>", parse_mode="HTML")
+        except Exception:
+            pass
+        await message.answer(f"✅ Пользователю {target_id} выдано +{amount} запросов", reply_markup=admin_keyboard())
 
 @dp.callback_query(F.data == "admin_give")
 async def admin_give_start(callback: CallbackQuery, state: FSMContext):
@@ -993,6 +1311,26 @@ async def admin_back(callback: CallbackQuery):
         return
     await callback.message.edit_text("🛠 <b>Админ панель</b>\n\nВыбери действие:", parse_mode="HTML", reply_markup=admin_keyboard())
     await callback.answer()
+@dp.callback_query(F.data == "admin_refs")
+async def admin_refs(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    total, top = await get_referral_stats()
+    total_refs = total["total_refs"] or 0
+    text = f"🔗 <b>Статистика рефералов</b>\n\n"
+    text += f"Всего приглашений: <b>{total_refs}</b>\n"
+    text += f"Выдано запросов: <b>{total_refs * 15 * 2}</b> (обеим сторонам)\n\n"
+    text += "🏆 <b>Топ реферреров:</b>\n"
+    for row in top:
+        name = row["username"] or f"user{row['user_id']}"
+        text += f"• {name} — {row['referrals_count']} чел.\n"
+    await callback.message.edit_text(
+        text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_back")]
+        ])
+    )
+    await callback.answer()
 
 # ===================== ПРЕЗЕНТАЦИЯ =====================
 @dp.message(F.text.regexp(r'(?i).*(создай презентацию|сделай презентацию|презентация|powerpoint|поверпоинт|pptx).*'))
@@ -1000,7 +1338,7 @@ async def create_presentation(message: Message):
     user_id = message.from_user.id
     user = await get_user(user_id)
     if not user:
-        await create_user(user_id, message.from_user.username or "")
+            await create_user(user_id, message.from_user.username or "")
 
     if not await can_send_message(user_id):
         await message.answer("⛔ Лимит исчерпан! /plans")
@@ -1013,7 +1351,7 @@ async def create_presentation(message: Message):
                 "Улучши тариф: /plans",
                 parse_mode="HTML"
             )
-        return
+            return
 
     topic = message.text.lower()
     for kw in ["создай презентацию", "сделай презентацию", "презентация", "powerpoint", "поверпоинт", "pptx"]:
@@ -1467,6 +1805,158 @@ async def handle_gif(message: Message):
     except Exception as e:
         logger.error(f"GIF error: {e}")
         await message.answer("🎬 Не удалось обработать гифку. Попробуй снова.")
+@dp.message(Command("reset_achievements"))
+async def reset_achievements_cmd(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) == 1:
+        async with aiosqlite.connect("bot_database.db") as db:
+            await db.execute("DELETE FROM user_achievements")
+            await db.commit()
+        await message.answer("✅ Достижения сброшены всем пользователям")
+    else:
+        try:
+            target_id = int(args[1])
+            async with aiosqlite.connect("bot_database.db") as db:
+                await db.execute(
+                    "DELETE FROM user_achievements WHERE user_id = ?", (target_id,)
+                )
+                await db.commit()
+            await message.answer(f"✅ Достижения сброшены пользователю {target_id}")
+        except ValueError:
+            await message.answer("❌ Неверный user_id")
+@dp.callback_query(F.data == "admin_ach")
+async def admin_ach_start(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await callback.message.edit_text("🏅 Введи user_id пользователя:", reply_markup=None)
+    await state.set_state(AdminState.ach_id)
+    await callback.answer()
+
+@dp.message(AdminState.ach_id)
+async def admin_ach_id(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        await state.update_data(target_id=int(message.text))
+    except ValueError:
+        await message.answer("❌ Неверный user_id")
+        return
+    
+    # Показываем список достижений кнопками
+    buttons = []
+    for aid, a in ACHIEVEMENTS.items():
+        buttons.append([InlineKeyboardButton(
+            text=f"{a['emoji']} {a['name']}",
+            callback_data=f"giveach_{aid}"
+        )])
+    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin_back")])
+    
+    await state.set_state(AdminState.ach_name)
+    await message.answer("Выбери достижение:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+@dp.callback_query(F.data.startswith("giveach_"))
+async def admin_ach_give(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    aid = callback.data.replace("giveach_", "")
+    data = await state.get_data()
+    target_id = data.get("target_id")
+    await state.clear()
+    
+    await check_and_give(target_id, aid)
+    a = ACHIEVEMENTS[aid]
+    await callback.message.edit_text(
+        f"✅ Достижение {a['emoji']} <b>{a['name']}</b> выдано пользователю {target_id}",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_back")]
+        ])
+    )
+    await callback.answer()
+
+# ===================== ДОКУМЕНТЫ =====================
+@dp.message(F.document)
+async def handle_document(message: Message):
+    user_id = message.from_user.id
+    user = await get_user(user_id)
+    if not user:
+        await create_user(user_id, message.from_user.username or "")
+
+    if not await can_send_message(user_id):
+        await message.answer("⛔ Лимит исчерпан! /plans")
+        return
+
+    doc = message.document
+    filename = doc.file_name or ""
+
+    if not filename.endswith((".docx", ".doc")):
+        await message.answer("📄 Я умею читать только Word файлы (.docx)\n\nДругие форматы пока не поддерживаются.")
+        return
+
+    if filename.endswith(".doc"):
+        await message.answer("⚠️ Формат .doc не поддерживается, сохрани файл в .docx и отправь снова.")
+        return
+
+    status = await message.answer("📖 Читаю документ...")
+
+    try:
+        file = await bot.get_file(doc.file_id)
+        file_bytes = await bot.download_file(file.file_path)
+        data = file_bytes.read()
+
+        import io as _io
+        docx_stream = _io.BytesIO(data)
+        docx = DocxDocument(docx_stream)
+
+        # Извлекаем текст
+        full_text = []
+        for para in docx.paragraphs:
+            if para.text.strip():
+                full_text.append(para.text.strip())
+
+        # Таблицы тоже читаем
+        for table in docx.tables:
+            for row in table.rows:
+                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                if row_text:
+                    full_text.append(row_text)
+
+        text = "\n".join(full_text)
+
+        if not text:
+            await status.edit_text("⚠️ Документ пустой или не содержит текста.")
+            return
+
+        # Обрезаем если слишком длинный
+        if len(text) > 12000:
+            text = text[:12000] + "\n\n[... документ обрезан ...]"
+
+        caption = message.caption or "Проанализируй этот документ. Кратко опиши о чём он, выдели ключевые моменты."
+
+        await status.edit_text("🧠 Анализирую...")
+
+        response = await get_claude_client().chat.completions.create(
+            model="claude-haiku-4.5",
+            max_tokens=4000,
+            messages=[
+                {"role": "system", "content": "Ты полезный AI-ассистент. Анализируй документы и отвечай по делу на языке пользователя."},
+                {"role": "user", "content": f"Содержимое документа '{filename}':\n\n{text}\n\n{caption}"}
+            ]
+        )
+        reply = response.choices[0].message.content
+        await save_message(user_id, "assistant", reply)
+        await increment_messages(user_id)
+        await status.delete()
+
+        for part in [reply[i:i+4096] for i in range(0, len(reply), 4096)]:
+            await message.answer(part)
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Document error: {e}\n{traceback.format_exc()}")
+        await status.edit_text(f"⚠️ Ошибка: {e}")
 
 # ===================== ТЕКСТ =====================
 @dp.message(F.text)
@@ -1496,12 +1986,10 @@ async def handle_message(message: Message):
         reply = response.choices[0].message.content
         await save_message(user_id, "assistant", reply)
         await increment_messages(user_id)
-        await message.answer(reply)
+        for part in [reply[i:i+4096] for i in range(0, len(reply), 4096)]:
+            await message.answer(part)
 
-        # достижения за активность
         streak = await update_streak(user_id)
-        if streak >= 7:
-            await check_and_give(user_id, "consistent")
 
         db_user = await get_user(user_id)
         reg_date = datetime.fromisoformat(db_user["created_at"])

@@ -5,22 +5,23 @@ DB_PATH = "bot_database.db"
 
 # ===================== ДОСТИЖЕНИЯ =====================
 ACHIEVEMENTS = {
-    "first_step":    {"emoji": "🌱", "name": "Первый шаг",     "desc": "Первое действие в боте",        "cat": "📊 Активность"},
-    "consistent":    {"emoji": "🔥", "name": "Постоянный",      "desc": "7 дней подряд в боте",          "cat": "📊 Активность"},
-    "veteran":       {"emoji": "🏛",  "name": "Ветеран",         "desc": "30 дней с регистрации",         "cat": "📊 Активность"},
-    "slide_master":  {"emoji": "🎓", "name": "Мастер слайдов",  "desc": "10 презентаций создано",        "cat": "🎨 Презентации"},
-    "collector":     {"emoji": "🎨", "name": "Коллекционер",    "desc": "Использовал все 5 тем",         "cat": "🎨 Презентации"},
-    "night_owl":     {"emoji": "🦉", "name": "Ночная сова",     "desc": "Запрос после полуночи",         "cat": "🌙 Время"},
-    "early_bird":    {"emoji": "🐦", "name": "Ранняя пташка",   "desc": "Запрос до 7:00 утра",           "cat": "🌙 Время"},
-    "chatterbox":    {"emoji": "💬", "name": "Болтун",          "desc": "50 сообщений боту",             "cat": "💬 Общение"},
-    "curious":       {"emoji": "❓", "name": "Почемучка",       "desc": "10 вопросов подряд",            "cat": "💬 Общение"},
-    "lucky":         {"emoji": "🍀", "name": "Везунчик",        "desc": "Редкая удача — шанс 1%",        "cat": "🎲 Случайные"},
-    "explorer":      {"emoji": "🔍", "name": "Исследователь",   "desc": "Попробовал все команды",        "cat": "🎲 Случайные"},
-    "paparazzi":     {"emoji": "📸", "name": "Папарацци",       "desc": "Первое фото боту",              "cat": "📸 Фото"},
-    "photo_album":   {"emoji": "🖼",  "name": "Фотоальбом",      "desc": "10 фото боту",                  "cat": "📸 Фото"},
-    "instagrammer":  {"emoji": "💫", "name": "Инстаграмер",     "desc": "50 фото боту",                  "cat": "📸 Фото"},
-    "week_champion": {"emoji": "🏆", "name": "Чемпион недели",  "desc": "1 место в топе 7 дней подряд", "cat": "👑 Лидерство"},
-    "king":          {"emoji": "👑", "name": "Король",          "desc": "Выдано администратором",        "cat": "👑 Лидерство"},
+    "first_step":    {"emoji": "🌱", "name": "Первый шаг",     "desc": "Первое действие в боте",        "cat": "📊 Активность",  "reward_type": "messages", "reward": 2},
+    "consistent":    {"emoji": "🔥", "name": "Постоянный",      "desc": "7 дней подряд в боте",          "cat": "📊 Активность",  "reward_type": "messages", "reward": 15},
+    "veteran":       {"emoji": "🏛",  "name": "Ветеран",         "desc": "30 дней с регистрации",         "cat": "📊 Активность",  "reward_type": "gift",     "reward": 15, "gift_id": "5170145012310081615"},
+    "slide_master":  {"emoji": "🎓", "name": "Мастер слайдов",  "desc": "10 презентаций создано",        "cat": "🎨 Презентации", "reward_type": "gift",     "reward": 15, "gift_id": "5170233102089322756"},
+    "collector":     {"emoji": "🎨", "name": "Коллекционер",    "desc": "Использовал все 5 тем",         "cat": "🎨 Презентации", "reward_type": "messages", "reward": 5},
+    "night_owl":     {"emoji": "🦉", "name": "Ночная сова",     "desc": "Запрос после полуночи",         "cat": "🌙 Время",       "reward_type": "messages", "reward": 2},
+    "early_bird":    {"emoji": "🐦", "name": "Ранняя пташка",   "desc": "Запрос до 7:00 утра",           "cat": "🌙 Время",       "reward_type": "messages", "reward": 2},
+    "chatterbox":    {"emoji": "💬", "name": "Болтун",          "desc": "50 сообщений боту",             "cat": "💬 Общение",     "reward_type": "messages", "reward": 5},
+    "curious":       {"emoji": "❓", "name": "Почемучка",       "desc": "10 вопросов подряд",            "cat": "💬 Общение",     "reward_type": "messages", "reward": 2},
+    "lucky":         {"emoji": "🍀", "name": "Везунчик",        "desc": "Редкая удача — шанс 1%",        "cat": "🎲 Случайные",   "reward_type": "gift",     "reward": 25, "gift_id": "5170250947678437525"},
+    "explorer":      {"emoji": "🔍", "name": "Исследователь",   "desc": "Попробовал все команды",        "cat": "🎲 Случайные",   "reward_type": "messages", "reward": 10},
+    "paparazzi":     {"emoji": "📸", "name": "Папарацци",       "desc": "Первое фото боту",              "cat": "📸 Фото",        "reward_type": "messages", "reward": 5},
+    "photo_album":   {"emoji": "🖼",  "name": "Фотоальбом",      "desc": "10 фото боту",                  "cat": "📸 Фото",        "reward_type": "messages", "reward": 5},
+    "instagrammer":  {"emoji": "💫", "name": "Инстаграмер",     "desc": "50 фото боту",                  "cat": "📸 Фото",        "reward_type": "messages", "reward": 15},
+    "week_champion": {"emoji": "🏆", "name": "Чемпион недели",  "desc": "1 место в топе 7 дней подряд", "cat": "👑 Лидерство",   "reward_type": "gift",     "reward": 15, "gift_id": "5170145012310081615"},
+    "king":          {"emoji": "👑", "name": "Король",          "desc": "Догодайся как получить",        "cat": "👑 Лидерство",   "reward_type": "gift",     "reward": 100, "gift_id": "5168043875654172773"},
+    "sub_bonus":     {"emoji": "📢", "name": "Подписчик",       "desc": "Подписался на канал",           "cat": "📊 Активность",  "reward_type": "messages", "reward": 0},
 }
 
 # ===================== ИНИЦИАЛИЗАЦИЯ БД =====================
@@ -66,9 +67,25 @@ async def init_db():
                 commands_used         TEXT DEFAULT '',
                 top1_days             INTEGER DEFAULT 0,
                 last_top1_date        TEXT DEFAULT ''
-            )
+                        )
         """)
         await db.commit()
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN total_messages INTEGER DEFAULT 0")
+            await db.commit()
+        except:
+            pass
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER DEFAULT NULL")
+            await db.commit()
+        except:
+            pass
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN referrals_count INTEGER DEFAULT 0")
+            await db.commit()
+        except:
+            pass
+
 
 # ===================== ПОЛЬЗОВАТЕЛИ =====================
 async def get_user(user_id: int):
@@ -269,6 +286,12 @@ async def give_achievement(user_id: int, achievement_id: str) -> bool:
             "INSERT INTO user_achievements (user_id, achievement_id, obtained_at) VALUES (?,?,?)",
             (user_id, achievement_id, datetime.datetime.now().isoformat())
         )
+        a = ACHIEVEMENTS.get(achievement_id, {})
+        if a.get("reward_type") == "messages" and a.get("reward", 0) > 0:
+            await db.execute(
+                "UPDATE users SET messages_limit = messages_limit + ? WHERE user_id = ?",
+                (a["reward"], user_id)
+            )
         await db.commit()
         return True
 
@@ -280,3 +303,22 @@ async def get_user_achievements(user_id: int):
             (user_id,)
         ) as cur:
             return await cur.fetchall()
+async def add_referral(referrer_id: int, new_user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT referrer_id FROM users WHERE user_id = ?", (new_user_id,)) as cur:
+            row = await cur.fetchone()
+        if row and row[0]:
+            return False
+        await db.execute("UPDATE users SET referrer_id = ? WHERE user_id = ?", (referrer_id, new_user_id))
+        await db.execute("UPDATE users SET messages_limit = messages_limit + 15, referrals_count = referrals_count + 1 WHERE user_id = ?", (referrer_id,))
+        await db.execute("UPDATE users SET messages_limit = messages_limit + 15 WHERE user_id = ?", (new_user_id,))
+        await db.commit()
+        return True
+async def get_referral_stats():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT SUM(referrals_count) as total_refs FROM users") as cur:
+            total = await cur.fetchone()
+        async with db.execute("SELECT user_id, username, referrals_count FROM users WHERE referrals_count > 0 ORDER BY referrals_count DESC LIMIT 10") as cur:
+            top = await cur.fetchall()
+    return total, top
