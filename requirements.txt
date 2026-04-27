@@ -1,6 +1,7 @@
 aiofiles==25.1.0
 aiogram==3.27.0
 aiohappyeyeballs==2.6.1
+python-docx==1.1.2
 aiohttp==3.13.5
 aiosignal==1.4.0
 aiosqlite==0.22.1
